@@ -1,0 +1,14 @@
+Email2SMS
+=========
+by Ian Llewellyn
+
+What is it?
+-----------
+Email2SMS is a daemon like application written in python that listens
+for incoming emails on port 25 and, if in the correct format, sends
+them via a Siemens M20 GSM modem to the addressed recipient.
+
+Requirements
+------------
+The application was written in Python 2.6.6 and requires the pySerial
+extenstion in order to connect to the RS232 attached GSM modem.

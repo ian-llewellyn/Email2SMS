@@ -6,7 +6,7 @@ Verbosity guide:
 0 - No output
 1 - Fatal Errors
 2 - Errors
-3 - Warnings
+3 - Info + Warnings
 4 - Operations
 5 - Debug
 """
@@ -14,8 +14,12 @@ Verbosity guide:
 """ Load pySerial extension """
 import serial
 
+""" More complicated file logging requires: """
+from datetime import datetime
+from os import getpid
+
 verbosity = 0
-log_level = 5
+log_level = 4
 log_file = 'Email2SMS.log'
 
 def log_msg(level, message):
@@ -24,7 +28,7 @@ def log_msg(level, message):
         print '%d\t%s' % (level, message)
     if level <= log_level:
         fd = open(log_file, 'a')
-        fd.write('%d\t%s\n' % (level, message))
+        fd.write('%s [%d] %d: %s\n' % (datetime.now().strftime('%d %b %T'), getpid(), level, message))
         fd.close()
 
 def comm(message, tout=1):
@@ -171,7 +175,7 @@ def text(mob_num, message):
 
 
 """ Start program proper """
-log_msg(4, "Starting Script")
+log_msg(3, "Starting Email2SMS")
 
 """ Set default modem port """
 """ This should be set by an optional cmd line argument """

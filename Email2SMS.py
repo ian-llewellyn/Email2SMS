@@ -14,12 +14,21 @@ Verbosity guide:
 """ Load pySerial extension """
 import serial
 
-""" Log handling function """
-def log_msg(level, message):
-    print "%d\t%s" % (level, message)
+verbosity = 0
+log_level = 5
+log_file = 'Email2SMS.log'
 
-""" Handles modem comms """
+def log_msg(level, message):
+    """ Log handling function """
+    if level <= verbosity:
+        print '%d\t%s' % (level, message)
+    if level <= log_level:
+        fd = open(log_file, 'a')
+        fd.write('%d\t%s\n' % (level, message))
+        fd.close()
+
 def comm(message, tout=1):
+    """ Handles modem comms """
     log_msg(5, "function comm() - Entering")
     log_msg(4, "Sending: %s" % message)
     replies = []
@@ -72,8 +81,8 @@ def comm(message, tout=1):
         log_msg(2, "Unable to open serial port in comm function")
         return False
 
-""" Scan for available serial ports """
 def serial_scan():
+    """ Scan for available serial ports """
     log_msg(4, "function serial_scan() - Entering")
     available = []
     for i in range(256):
@@ -87,9 +96,9 @@ def serial_scan():
     """ Return a list of tuples (int num, string name) """
     return available
 
-""" For each port, check to see if there's a modem attached """
-""" Send AT and see if we recieve OK back """
 def serial_has_modem(ports):
+    """ For each port, check to see if there's a modem attached;
+        Send AT and see if we recieve OK back """
     log_msg(4, "function serial_has_modem() - Entering")
     modems = []
     for (p_num, p_name) in ports:
@@ -108,10 +117,10 @@ def serial_has_modem(ports):
             log_msg(2, "There was a problem attempting to connect to [%d - %s]" % (p_num, p_name))
     return modems
 
-""" Next, check to see if there is a SIM inserted """
-""" Now, find out if it's looking for a PIN """
-""" If yes, provide PIN. If not, move on """
 def modem_init(p_num):
+    """ Next, check to see if there is a SIM iserted
+        Now, find out if it's looking for a PIN
+        If yes, provide PIN. If not, move on """
     log_msg(4, "function modem_init() - Entering")
 
     """ SIM Check """
@@ -172,9 +181,15 @@ modem_port = -1
 if modem_port == -1:
     """ Return all serial ports """
     serial_ports = serial_scan()
+    if serial_ports == []:
+        log_msg(1, 'You have no serial ports')
+        exit(1)
 
     """ Return only serial ports that have a modem attached """
     modem_ports = serial_has_modem(serial_ports)
+    if modem_ports == []:
+        log_msg(1, 'No modems found')
+        exit(1)
 
     """ Try to initialise all modems, but stop trying if one succeeds """
     for (p_num, p_name) in modem_ports:

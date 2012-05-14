@@ -149,29 +149,27 @@ def modem_init(p_num):
     return True
 
 import time
-text_running = 0
-def text(mob_num, message):
-    log_msg(4, "function text() - Entering")
+import threading
 
-    """ Is there a text function running """
-    global text_running
-    while text_running == 1:
-        log_msg(5, "Waiting for another text function to complete")
-        time.sleep(1)
-    text_running = 1
-    log_msg(5, "text_running set to 1")
+class TextThread(threading.Thread):
+    def run(self):
+        while True:
+            try:
+                mob_num, message = text_queue.pop(0)
 
-    """ This next line constrains texts to Irish recipients """
-    """ Recipients must be "08Xxxxxxxx" or "8Xxxxxxxx" """
-    mob_num = "+353"+mob_num.lstrip("0")
-    if comm("AT+CMGS=\"%s\"" % mob_num) != "> ":
-        log_msg(1, "Cannot initialise SMS")
-        return False
-    else:
-        comm("%s%c" % (message, 26), tout=15)
-    log_msg(5, "Setting text_running to 0")
-    #time.sleep(4) # Bit of a hack - the prob is with the above comm() not getting a response
-    text_running = 0
+                log_msg(4, "former function text() - Entering")
+
+                """ This next line constrains texts to Irish recipients
+                    Recipients must be "08Xxxxxxxx" or "8Xxxxxxxx" """
+                mob_num = "+353"+mob_num.lstrip("0")
+                if comm("AT+CMGS=\"%s\"" % mob_num) != "> ":
+                    log_msg(1, "Cannot initialise SMS")
+                    return False
+                else:
+                    comm("%s%c" % (message, 26), tout=15)
+            except IndexError:
+                pass
+            time.sleep(1)
 
 
 """ Start program proper """
@@ -216,9 +214,16 @@ import asyncore
 import mimetypes
 import email
 
+text_queue = []
+tt = TextThread()
+tt.start()
+
 class CustomSMTPServer(smtpd.SMTPServer):
-    
+    in_counter = 0
+    out_counter = 0
+
     def process_message(self, peer, mailfrom, rcpttos, data):
+        self.in_counter += 1
         log_msg(4, "Receiving message from: %s, %d" % peer)
         log_msg(4, "Message addressed from: %s" % mailfrom)
         log_msg(4, "Message addressed to  : %s" % rcpttos)
@@ -230,7 +235,6 @@ class CustomSMTPServer(smtpd.SMTPServer):
         msg_from = msg['From']
         subject = msg['Subject']
 
-        counter = 1
         for part in msg.walk():
             if part.get_content_maintype() == "multipart":
                 continue
@@ -239,8 +243,6 @@ class CustomSMTPServer(smtpd.SMTPServer):
                 message = part.get_payload(decode=True)
                 break
             
-            counter += 1
-
         #print msg.as_string()
 
         for rcptto in rcpttos:
@@ -256,7 +258,9 @@ class CustomSMTPServer(smtpd.SMTPServer):
             log_msg(5, "It has 10 numbers!")
             log_msg(5, "Recipient: %s" % txt_rcpt)
             #print "%s %s %s" % (msg_from, subject, message)
-            text(txt_rcpt, "%s %s:\n%s" % (msg_from, subject, message))
+            self.out_counter += 1
+            text_queue.append((txt_rcpt, "%s %s:\n%s" % (msg_from, subject, message)))
+            log_msg(5, "Text Queue length: %d" % len(text_queue))
         return
 
 # Change the hostname from localhost to receive emails from remote hosts

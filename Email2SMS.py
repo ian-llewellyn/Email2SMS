@@ -12,14 +12,18 @@ Verbosity guide:
 5 - Debug
 """
 
-""" Load pySerial extension """
-import serial
 
 import logging
+import os
+import sys
+
+""" Load pySerial extension """
+import serial
 
 logger = logging.getLogger(__name__)
 
 LOG_FILE = 'Email2SMS.log'
+PID_FILE = 'Email2SMS.pid'
 
 FORMAT = '[%(asctime)s] %(process)d %(levelname)s: %(message)s'
 formatter = logging.Formatter(FORMAT)
@@ -28,14 +32,12 @@ file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(formatter)
 
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.DEBUG)
-stream_handler.setFormatter(formatter)
 
 logger.addHandler(file_handler)
-logger.addHandler(stream_handler)
 logger.setLevel(logging.DEBUG)
 logger.propagate = False
+
+MODEM_PORT = -1
 
 
 def comm(message, tout=1):
@@ -45,7 +47,7 @@ def comm(message, tout=1):
 
     try:
         """ Open serial connection """
-        s = serial.Serial(modem_port, 19200)
+        s = serial.Serial(MODEM_PORT, 19200)
         s.timeout = tout
         """ When sending, \r or \r\n is ok """
         s.write("%s\r" % message)
@@ -189,47 +191,6 @@ def text(mob_num, message):
     # not getting a response
     text_running.release()
 
-
-""" Start program proper """
-logger.warning("Starting Email2SMS")
-
-""" Set default modem port """
-""" This should be set by an optional cmd line argument """
-modem_port = -1
-
-""" If no port is set, we must find one """
-if modem_port == -1:
-    """ Return all serial ports """
-    serial_ports = serial_scan()
-    if serial_ports == []:
-        logger.critical('You have no serial ports')
-        exit(1)
-
-    """ Return only serial ports that have a modem attached """
-    modem_ports = serial_has_modem(serial_ports)
-    if modem_ports == []:
-        logger.critical('No modems found')
-        exit(1)
-
-    """ Try to initialise all modems, but stop trying if one succeeds """
-    for (p_num, p_name) in modem_ports:
-        logger.debug("Trying modem on [%d - %s]" % (p_num, p_name))
-        modem_port = p_num
-        if modem_init(p_num):
-            logger.info("Initialised modem on [%d - %s]" % (p_num, p_name))
-            break
-        logger.info("Failed to initialise modem on [%d - %s]" % (p_num,
-                                                                 p_name))
-else:
-    if modem_init(modem_port):
-        logger.info("Failed to initialise modem on [%d]" % modem_port)
-
-""" Let's try sending a text """
-#text("0861234567", "01..2..3..4..5..6..7..8..9..10..1..2..3..4..5..6..7..8..
-#9..20..1..2..3..4..5..6..7..8..9..30..1..2..3..4..5..6..7..8..9..40..1..2..
-#3..4..5..6..7..8..9..50..1..2..3..4..5..6..7..8..9..60..1..2..3..4..5..
-#6..7..8..9..70")
-
 """ Start the smtpd service """
 import smtpd
 import asyncore
@@ -279,7 +240,118 @@ class CustomSMTPServer(smtpd.SMTPServer):
             text(txt_rcpt, "%s %s:\n%s" % (msg_from, subject, message))
         return
 
-# Change the hostname from localhost to receive emails from remote hosts
-server = CustomSMTPServer(('localhost', 2005), None)
 
-asyncore.loop()
+def write_pid(pid):
+    with open(PID_FILE, 'w') as pid_file:
+        pid_file.write('%i' % pid)
+
+
+def get_pid_from_file():
+    content = None
+    try:
+        with open(PID_FILE, 'r') as pid_file:
+            content = ''.join(pid_file.readlines()).strip()
+    except IOError:
+        pass
+    return int(content) if content else content
+
+
+def is_running(pid):
+    if pid:
+        return os.path.exists('/proc/%s' % pid)
+    # TODO Improve the lookup with the proces name
+    return False
+
+
+def start():
+    """ Start program proper """
+    write_pid(os.getpid())
+    global MODEM_PORT
+    logger.warning("Starting Email2SMS")
+
+    """ Set default modem port """
+    """ This should be set by an optional cmd line argument """
+
+    """ If no port is set, we must find one """
+    if MODEM_PORT == -1:
+        """ Return all serial ports """
+        serial_ports = serial_scan()
+        if serial_ports == []:
+            logger.critical('You have no serial ports')
+            exit(1)
+
+        """ Return only serial ports that have a modem attached """
+        MODEM_PORTS = serial_has_modem(serial_ports)
+        if MODEM_PORTS == []:
+            logger.critical('No modems found')
+            exit(1)
+
+        """ Try to initialise all modems, but stop trying if one succeeds """
+        for (p_num, p_name) in MODEM_PORTS:
+            logger.debug("Trying modem on [%d - %s]" % (p_num, p_name))
+            MODEM_PORT = p_num
+            if modem_init(p_num):
+                logger.info("Initialised modem on [%d - %s]" % (p_num, p_name))
+                break
+            logger.info("Failed to initialise modem on [%d - %s]" % (p_num,
+                                                                     p_name))
+    else:
+        if modem_init(MODEM_PORT):
+            logger.info("Failed to initialise modem on [%d]" % MODEM_PORT)
+
+    """ Let's try sending a text """
+    #text("0861234567", "01..2..3..4..5..6..7..8..9..10..
+    #1..2..3..4..5..6..7..8..9..20..1..2..3..4..5..6..7..8..9..30..
+    #1..2..3..4..5..6..7..8..9..40..1..2..3..4..5..6..7..8..9..50..
+    #1..2..3..4..5..6..7..8..9..60..1..2..3..4..5..6..7..8..9..70")
+
+    CustomSMTPServer(('localhost', 2005), None)
+
+    asyncore.loop()
+
+
+def cmd_start(pid):
+    pid = os.fork()
+    if pid == 0:
+        start()
+    else:
+        exit()
+
+
+def cmd_stop(pid):
+    if is_running(pid):
+        os.kill(pid, 9)
+        return True
+    return False
+
+
+if __name__ == '__main__':
+    if len(sys.argv) > 1:
+        command = sys.argv[1]
+        if command in ('start', 'stop', 'restart', 'status', 'fg'):
+            pid = get_pid_from_file()
+            if command == 'start':
+                if is_running(pid):
+                    print 'Already running on PID %s' % pid
+                    sys.exit(1)
+                else:
+                    cmd_start(pid)
+            elif command == 'fg':
+                stream_handler = logging.StreamHandler()
+                stream_handler.setLevel(logging.DEBUG)
+                stream_handler.setFormatter(formatter)
+                logger.addHandler(stream_handler)
+                start()
+            elif command == 'stop':
+                if not cmd_stop(pid):
+                    print 'Email2SMS is not running'
+            elif command == 'status':
+                if is_running(pid):
+                    print 'Running with PID: %s' % pid
+                    sys.exit(0)
+                else:
+                    print 'Not running'
+                    sys.exit(1)
+            elif command == 'restart':
+                cmd_stop(pid)
+                cmd_start(pid)

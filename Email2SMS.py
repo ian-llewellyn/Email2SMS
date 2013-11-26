@@ -16,29 +16,33 @@ Verbosity guide:
 import serial
 
 """ More complicated file logging requires: """
-from datetime import datetime
-from os import getpid
+import logging
 
-verbosity = 0
-log_level = 4
+logger = logging.getLogger(__name__)
+
 log_file = 'Email2SMS.log'
 
+FORMAT = '%(asctime)s [%(levelname)s] %(process)d: %(message)s'
+formatter = logging.Formatter(FORMAT)
 
-def log_msg(level, message):
-    """ Log handling function """
-    if level <= verbosity:
-        print '%d\t%s' % (level, message)
-    if level <= log_level:
-        fd = open(log_file, 'a')
-        fd.write('%s [%d] %d: %s\n' % (datetime.now().strftime('%d %b %T'),
-                                       getpid(), level, message))
-        fd.close()
+file_handler = logging.FileHandler(log_file)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(formatter)
+
+stream_handler = logging.StreamHandler()
+stream_handler.setLevel(logging.DEBUG)
+stream_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
+logger.addHandler(stream_handler)
+logger.setLevel(logging.DEBUG)
+logger.propagate = False
 
 
 def comm(message, tout=1):
     """ Handles modem comms """
-    log_msg(5, "function comm() - Entering")
-    log_msg(4, "Sending: %s" % message)
+    logger.debug("function comm() - Entering")
+    logger.info("Sending: %s" % message)
 
     try:
         """ Open serial connection """
@@ -57,7 +61,7 @@ def comm(message, tout=1):
         while end_read != 1:
             byte = s.read()
             if len(byte) < 1:
-                log_msg(4, "No bytes in serial buffer")
+                logger.info("No bytes in serial buffer")
                 break
             if byte == "\n":
                 line[i] = line[i].rstrip("\r")
@@ -81,22 +85,22 @@ def comm(message, tout=1):
         """ Format and return the response from the modem """
         reply = "\n".join(line)
         reply = reply.replace(message.rstrip("%c" % 26)+"\n", "", 1)
-        log_msg(5, "Received: %s" % reply)
+        logger.debug("Received: %s" % reply)
         return reply
 
     except serial.SerialException:
-        log_msg(2, "Unable to open serial port in comm function")
+        logger.error("Unable to open serial port in comm function")
         return False
 
 
 def serial_scan():
     """ Scan for available serial ports """
-    log_msg(4, "function serial_scan() - Entering")
+    logger.info("function serial_scan() - Entering")
     available = []
     for i in range(256):
         try:
             s = serial.Serial(i)
-            log_msg(5, "Found serial port [%d - %s]" % (i, s.portstr))
+            logger.debug("Found serial port [%d - %s]" % (i, s.portstr))
             available.append((i, s.portstr))
             s.close()  # explicit close 'cause of delayed GC in java
         except serial.SerialException:
@@ -108,7 +112,7 @@ def serial_scan():
 def serial_has_modem(ports):
     """ For each port, check to see if there's a modem attached;
         Send AT and see if we recieve OK back """
-    log_msg(4, "function serial_has_modem() - Entering")
+    logger.info("function serial_has_modem() - Entering")
     modems = []
     for (p_num, p_name) in ports:
         try:
@@ -119,13 +123,15 @@ def serial_has_modem(ports):
             """ The first read will read back what we wrote """
             if s.readline().rstrip("\r\n") == 'AT':
                 if s.readline().rstrip("\r\n") == 'OK':
-                    log_msg(5, "Modem present on [%d - %s]" % (p_num, p_name))
+                    logger.debug("Modem present on [%d - %s]" % (p_num,
+                                                                 p_name))
                     modems.append((p_num, p_name))
             s.close()
         except serial.SerialException:
-            log_msg(2,
-                    "There was a problem attempting to connect to [%d - %s]"
-                    % (p_num, p_name))
+            logger.info(
+                "There was a problem attempting to connect to [%d - %s]"
+                % (p_num, p_name)
+            )
     return modems
 
 
@@ -133,29 +139,29 @@ def modem_init(p_num):
     """ Next, check to see if there is a SIM iserted
         Now, find out if it's looking for a PIN
         If yes, provide PIN. If not, move on """
-    log_msg(4, "function modem_init() - Entering")
+    logger.info("function modem_init() - Entering")
 
     """ SIM Check """
     if comm("AT^SCKS?", tout=5) != "^SCKS: 0,1\n\nOK":
-        log_msg(1, "SIM Not Present")
+        logger.critical("SIM Not Present")
         exit()
     else:
-        log_msg(4, "SIM OK")
+        logger.info("SIM OK")
 
     """ PIN Check """
     if comm("AT+CPIN?") != "+CPIN: READY\n\nOK":
         """ Enter SIM PIN """
-        log_msg(1, "Need to enter PIN")
+        logger.critical("Need to enter PIN")
         exit()
     else:
-        log_msg(4, "PIN OK")
+        logger.info("PIN OK")
 
     """ Switch to text mode """
     if comm("AT+CMGF=1") != "OK":
-        log_msg(1, "Cannot switch GSM modem to Text mode")
+        logger.critical("Cannot switch GSM modem to Text mode")
         """ FAIL """
     else:
-        log_msg(5, "Switched GSM modem to Text mode")
+        logger.debug("Switched GSM modem to Text mode")
 
     return True
 
@@ -164,29 +170,29 @@ text_running = Lock()
 
 
 def text(mob_num, message):
-    log_msg(4, "function text() - Entering")
+    logger.info("function text() - Entering")
 
     """ Is there a text function running """
     global text_running
-    log_msg(5, "About to acquire lock")
+    logger.debug("About to acquire lock")
     text_running.acquire()
 
     """ This next line constrains texts to Irish recipients """
     """ Recipients must be "08Xxxxxxxx" or "8Xxxxxxxx" """
     mob_num = "+353"+mob_num.lstrip("0")
     if comm("AT+CMGS=\"%s\"" % mob_num) != "> ":
-        log_msg(1, "Cannot initialise SMS")
+        logger.critical("Cannot initialise SMS")
         return False
     else:
         comm("%s%c" % (message, 26), tout=15)
-    log_msg(5, "Releasing lock")
+    logger.debug("Releasing lock")
     #time.sleep(4) # Bit of a hack - the prob is with the above comm()
     # not getting a response
     text_running.release()
 
 
 """ Start program proper """
-log_msg(3, "Starting Email2SMS")
+logger.warning("Starting Email2SMS")
 
 """ Set default modem port """
 """ This should be set by an optional cmd line argument """
@@ -197,26 +203,27 @@ if modem_port == -1:
     """ Return all serial ports """
     serial_ports = serial_scan()
     if serial_ports == []:
-        log_msg(1, 'You have no serial ports')
+        logger.critical('You have no serial ports')
         exit(1)
 
     """ Return only serial ports that have a modem attached """
     modem_ports = serial_has_modem(serial_ports)
     if modem_ports == []:
-        log_msg(1, 'No modems found')
+        logger.critical('No modems found')
         exit(1)
 
     """ Try to initialise all modems, but stop trying if one succeeds """
     for (p_num, p_name) in modem_ports:
-        log_msg(5, "Trying modem on [%d - %s]" % (p_num, p_name))
+        logger.debug("Trying modem on [%d - %s]" % (p_num, p_name))
         modem_port = p_num
         if modem_init(p_num):
-            log_msg(4, "Initialised modem on [%d - %s]" % (p_num, p_name))
+            logger.info("Initialised modem on [%d - %s]" % (p_num, p_name))
             break
-        log_msg(4, "Failed to initialise modem on [%d - %s]" % (p_num, p_name))
+        logger.info("Failed to initialise modem on [%d - %s]" % (p_num,
+                                                                 p_name))
 else:
     if modem_init(modem_port):
-        log_msg(4, "Failed to initialise modem on [%d]" % modem_port)
+        logger.info("Failed to initialise modem on [%d]" % modem_port)
 
 """ Let's try sending a text """
 #text("0861234567", "01..2..3..4..5..6..7..8..9..10..1..2..3..4..5..6..7..8..
@@ -233,11 +240,11 @@ import email
 class CustomSMTPServer(smtpd.SMTPServer):
 
     def process_message(self, peer, mailfrom, rcpttos, data):
-        log_msg(4, "Receiving message from: %s, %d" % peer)
-        log_msg(4, "Message addressed from: %s" % mailfrom)
-        log_msg(4, "Message addressed to  : %s" % rcpttos)
-        log_msg(4, "Message length        : %d" % len(data))
-        #log_msg(4, "%s" % data)
+        logger.info("Receiving message from: %s, %d" % peer)
+        logger.info("Message addressed from: %s" % mailfrom)
+        logger.info("Message addressed to  : %s" % rcpttos)
+        logger.info("Message length        : %d" % len(data))
+        #logger.info("%s" % data)
 
         msg = email.message_from_string(data)
 
@@ -261,19 +268,19 @@ class CustomSMTPServer(smtpd.SMTPServer):
             txt_rcpt = rcptto.split('@')[0]
             # Check to see if it is all numbers and that there are 10 of them!
             if not txt_rcpt.isdigit():
-                log_msg(3, "It's NOT all digits!")
+                logger.warning("It's NOT all digits!")
                 break
-            log_msg(5, "It's all digits!")
+            logger.debug("It's all digits!")
             if len(txt_rcpt) != 10:
-                log_msg(3, "It has NOT got 10 numbers!")
+                logger.warning("It has NOT got 10 numbers!")
                 break
-            log_msg(5, "It has 10 numbers!")
-            log_msg(5, "Recipient: %s" % txt_rcpt)
+            logger.debug("It has 10 numbers!")
+            logger.debug("Recipient: %s" % txt_rcpt)
             #print "%s %s %s" % (msg_from, subject, message)
             text(txt_rcpt, "%s %s:\n%s" % (msg_from, subject, message))
         return
 
 # Change the hostname from localhost to receive emails from remote hosts
-server = CustomSMTPServer(('localhost', 25), None)
+server = CustomSMTPServer(('localhost', 2005), None)
 
 asyncore.loop()

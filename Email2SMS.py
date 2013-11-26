@@ -15,17 +15,16 @@ Verbosity guide:
 """ Load pySerial extension """
 import serial
 
-""" More complicated file logging requires: """
 import logging
 
 logger = logging.getLogger(__name__)
 
-log_file = 'Email2SMS.log'
+LOG_FILE = 'Email2SMS.log'
 
-FORMAT = '%(asctime)s [%(levelname)s] %(process)d: %(message)s'
+FORMAT = '[%(asctime)s] %(process)d %(levelname)s: %(message)s'
 formatter = logging.Formatter(FORMAT)
 
-file_handler = logging.FileHandler(log_file)
+file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(formatter)
 

@@ -1,3 +1,4 @@
+#!/usr/bin/python
 """ Email to SMS Bridge
 Project Started : 2009-03-09 16:00
 Version : 0.1-alpha
@@ -148,18 +149,15 @@ def modem_init(p_num):
 
     return True
 
-import time
-text_running = 0
+from threading import Lock
+text_running = Lock()
 def text(mob_num, message):
     log_msg(4, "function text() - Entering")
 
     """ Is there a text function running """
     global text_running
-    while text_running == 1:
-        log_msg(5, "Waiting for another text function to complete")
-        time.sleep(1)
-    text_running = 1
-    log_msg(5, "text_running set to 1")
+    log_msg(5, "About to acquire lock")
+    text_running.acquire()
 
     """ This next line constrains texts to Irish recipients """
     """ Recipients must be "08Xxxxxxxx" or "8Xxxxxxxx" """
@@ -169,9 +167,9 @@ def text(mob_num, message):
         return False
     else:
         comm("%s%c" % (message, 26), tout=15)
-    log_msg(5, "Setting text_running to 0")
+    log_msg(5, "Releasing lock")
     #time.sleep(4) # Bit of a hack - the prob is with the above comm() not getting a response
-    text_running = 0
+    text_running.release()
 
 
 """ Start program proper """

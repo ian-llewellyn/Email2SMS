@@ -1,4 +1,7 @@
 #!/usr/bin/python
+# chkconfig: 2345 90 10
+# description: Listens for emails of a particular format and sends them via GSM
+#              modem to the specified number.
 """ Email to SMS Bridge
 Project Started : 2009-03-09 16:00
 Version : 0.1-alpha
@@ -22,8 +25,8 @@ import serial
 
 logger = logging.getLogger(__name__)
 
-LOG_FILE = 'Email2SMS.log'
-PID_FILE = 'Email2SMS.pid'
+LOG_FILE = '/var/log/Email2SMS.log'
+PID_FILE = '/var/run/Email2SMS.pid'
 
 FORMAT = '[%(asctime)s] %(process)d %(levelname)s: %(message)s'
 formatter = logging.Formatter(FORMAT)

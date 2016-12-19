@@ -40,7 +40,7 @@ logger.addHandler(file_handler)
 logger.setLevel(logging.DEBUG)
 logger.propagate = False
 
-MODEM_PORT = -1
+MODEM_PORT = None
 
 
 def comm(message, tout=1):
@@ -103,7 +103,7 @@ def serial_scan():
     available = []
     for i in range(256):
         try:
-            s = serial.Serial(i)
+            s = serial.Serial('/dev/ttyS%d' % i)
             logger.debug("Found serial port [%d - %s]" % (i, s.portstr))
             available.append((i, s.portstr))
             s.close()  # explicit close 'cause of delayed GC in java
@@ -121,7 +121,7 @@ def serial_has_modem(ports):
     for (p_num, p_name) in ports:
         try:
             """ Open serial connection """
-            s = serial.Serial(p_num, 19200, timeout=1)
+            s = serial.Serial(p_name, 19200, timeout=1)
             """ \r or \r\n """
             s.write("AT\r")
             """ The first read will read back what we wrote """
@@ -186,6 +186,7 @@ def text(mob_num, message):
     mob_num = "+353"+mob_num.lstrip("0")
     if comm("AT+CMGS=\"%s\"" % mob_num) != "> ":
         logger.critical("Cannot initialise SMS")
+        text_running.release()
         return False
     else:
         comm("%s%c" % (message, 26), tout=15)
@@ -276,7 +277,7 @@ def start():
     """ This should be set by an optional cmd line argument """
 
     """ If no port is set, we must find one """
-    if MODEM_PORT == -1:
+    if MODEM_PORT is None:
         """ Return all serial ports """
         serial_ports = serial_scan()
         if serial_ports == []:
@@ -292,7 +293,7 @@ def start():
         """ Try to initialise all modems, but stop trying if one succeeds """
         for (p_num, p_name) in MODEM_PORTS:
             logger.debug("Trying modem on [%d - %s]" % (p_num, p_name))
-            MODEM_PORT = p_num
+            MODEM_PORT = p_name
             if modem_init(p_num):
                 logger.info("Initialised modem on [%d - %s]" % (p_num, p_name))
                 break
